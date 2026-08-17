@@ -33,3 +33,41 @@ lexer src = tokenizar src (Pos 1 1)
             in tokenizar droppedcomm pos
           
           
+          | sh == '"' = do
+               (str, rest, newPos) <- consumirString st (avancaPos pos '"')[]
+               (Token (TokenString str) pos :) <$> tokenizar rest newPos
+          | isAlpha sh || sh == '_' =
+              let (word, rest, newPos) = consumeIdent (sh:st) pos
+              in (Token (classifyKeywordOrID word) pos:) <$> tokenizar rest
+          
+          | isDigit sh =
+              let (numStr, rest, newPos) = consumeWhile isDigit (sh:st) pos
+              in (Token (TokenInt (read numStr)) pos :) <$> tokenize rest newPos
+
+          | otherwise = 
+             let (tokenTipo, qtAvanco) = matchSimbolo (sh:st)
+             in case tokenTipo of
+                  Just tt -> 
+                    let newPos = foldl avancaPos pos (take qtAvanco (sh:st))
+                    in (Token tt pos :) <$> tokenizar (drop qtAvanco (sh:st)) newPos
+                  Nothing -> Left (LexErro ("Caractér inválido: " ++ [sh]) pos)
+
+avancaPos :: Posicao -> Char -> Posicao
+avancaPos (Pos l c) '\n' = Pos (l+1) 1
+avancaPos (Pos l c) _ = Pos l (c+1)
+
+classifyKeywordOrID :: String -> TokenTipo
+classifyKeywordOrID s = 
+    let lowerStr = map toLower s 
+    in case lowerS of
+        "class"     -> TokenClass
+        "else"      -> TokenElse
+        "let"       -> TokenLet
+        "false"     -> TokenFalse
+        "if"        -> TokenIf
+        "fi"        -> TokenFi
+        "true"      -> TokenTrue
+        "case"      -> TokenCase
+        "esac"      -> TokenEsac
+        "inherits"  -> TokenInherits
+
