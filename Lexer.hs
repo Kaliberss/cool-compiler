@@ -142,6 +142,7 @@ matchSimbolo (':':st) = (Just TokenColon, 1)
 matchSimbolo ('<':'-':st) = (Just TokenAssign, 2)
 matchSimbolo ('<': '=':st) = (Just TokenLe, 2)
 matchSimbolo ('<':st) = (Just TokenLt, 1)
+matchSimbolo ('~':st) = (Just TokenComplement, 1)
 matchSimbolo _ = (Nothing, 0)
 
 consumirComentario :: String -> Posicao -> Int -> Either LexErro (String, Posicao)
