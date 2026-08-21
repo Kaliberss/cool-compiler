@@ -17,5 +17,19 @@ Esse projeto está sendo realizado como parte da disciplina de Compiladores na *
 
 Para utilizar o compilador (por enquanto consistindo do analisador léxico), usando Nix:
 ```bash
+git clone https://github.com/your-username/cool-compiler.git
+cd cool-compiler
 nix run . local/do/arquivo.cl
 ```
+
+Para criar um ambiente de desenvolvimento com as ferramentas necessárias, usando Nix:
+
+```bash
+nix develop
+```
+Dentro do devshell, para compilar e executar:
+
+```bash
+cabal build
+cabal run test local/do/arquivo.cl
+``
