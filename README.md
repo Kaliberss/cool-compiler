@@ -11,7 +11,7 @@ Esse projeto está sendo realizado como parte da disciplina de Compiladores na *
 * __Fase 4: Geração de Código__ ✘
 
 ## Dependências
-*[Nix](https://nixos.org/) usando [flakes](https://nixos.wiki/wiki/Flakes)
+* [Nix](https://nixos.org/) usando [flakes](https://nixos.wiki/wiki/Flakes)
 
 ## Utilização
 
