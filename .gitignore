@@ -3,4 +3,4 @@
 *.cl
 *.o
 cool-lexer
-.hi
+*.hi
