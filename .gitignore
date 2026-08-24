@@ -4,3 +4,4 @@
 *.o
 cool-lexer
 *.hi
+dist-newstyle/
