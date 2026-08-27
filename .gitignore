@@ -4,4 +4,8 @@
 *.o
 cool-lexer
 *.hi
+<<<<<<< HEAD
 dist-newstyle*
+=======
+dist-newstyle/
+>>>>>>> refs/remotes/origin/main
