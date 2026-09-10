@@ -11,13 +11,15 @@ Esse projeto está sendo realizado como parte da disciplina de Compiladores na *
 * __Fase 4: Geração de Código__ ✘
 
 ## Dependências
-* [Nix](https://nixos.org/) usando [flakes](https://nixos.wiki/wiki/Flakes)
+* GHC
+* Cabal
+* Nix usando flakes (Opcional, mas recomendado: instala as dependências acima automaticamente)
 
 ## Utilização
 
 Para utilizar o compilador (por enquanto consistindo do analisador léxico), usando Nix:
 ```bash
-git clone https://github.com/your-username/cool-compiler.git
+git clone https://github.com/Kaliberss/cool-compiler.git
 cd cool-compiler
 nix run . local/do/arquivo.cl
 ```
