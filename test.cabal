@@ -5,7 +5,7 @@ version:            0.1.0
 executable cool-lexer
     main-is:        Main.hs
     
-    other-modules:  Lexer
+    other-modules:  Lexer, AST
 
     build-depends:  base >= 4.14 && < 4.21
 
