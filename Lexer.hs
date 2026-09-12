@@ -10,14 +10,14 @@ where
 import Data.Char
 
 data Posicao = Pos { line :: Int, col :: Int }
-  deriving (Show,Eq)
+  deriving (Show,Eq,Ord)
 
 data TipoToken
   = TokenClass | TokenTypeID String | TokenID String | TokenIf | TokenElse | TokenFi | TokenWhile | TokenLoop | TokenPool | TokenLet | TokenIn | TokenCase | TokenOf | TokenEsac | TokenNew | TokenIsVoid | TokenNot | TokenTrue | TokenFalse | TokenThen | TokenComplement | TokenPlus | TokenMinus | TokenDiv | TokenMult | TokenLt | TokenLe | TokenEq | TokenAssign | TokenInt Int| TokenString String| TokenInherits | TokenComma | TokenSemi | TokenColon | TokenLParen | TokenRParen | TokenLBrace | TokenRBrace | TokenDot | TokenArrow | TokenAt
-  deriving (Show,Eq)
+  deriving (Show,Eq,Ord)
 
 data Token = Token TipoToken Posicao
-  deriving (Show,Eq)
+  deriving (Show,Eq,Ord)
 
 data LexErro = LexErro String Posicao
   deriving (Show, Eq)
