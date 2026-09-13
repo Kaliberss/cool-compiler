@@ -51,8 +51,8 @@ parseInt = do
 
 parseString :: Parser (Expr Posicao)
 parseString = do
-    pos <- parseHelper TokenTrue "keyword 'true'"
-    return (BoolConst pos True)
+    (pos,str) <- pStringToken 
+    return (ConstStr pos str)
 
 parseIf :: Parser (Expr Posicao)
 parseIf = do
@@ -155,11 +155,55 @@ parseCase = do
     return (Case pos branches expr)
 
 parseAssign :: Parser (Expr Posicao)
-parseAssign = do
+parseAssign = try $ do
     (pos,name) <- pIDToken
     _ <- parseHelper TokenAssign "assignment '<-'"
     rhs <- parseExpr
     return (Assign pos name rhs)
+
+parseFormal :: Parser (Formal Posicao)
+parseFormal = do
+    (pos,name) <- pIDToken 
+    _ <- parseHelper TokenColon "':'"
+    (_, typeName) <- pIDToken 
+    return (Formal pos name typeName)
+
+parseMethod :: Parser (Feature Posicao)
+parseMethod = do
+    (pos,name) <- pIDToken 
+    _ <- parseHelper TokenLParen "'('"
+    formals <- parseFormal `sepBy` parseHelper TokenComma "',' between args"
+    _ <- parseHelper TokenRParen "')'"
+    _ <- parseHelper TokenColon "':'"
+    (_, returnType) <- pTypeIdToken 
+
+    _ <- parseHelper TokenLBrace "'{'"
+    body <- parseExpr
+    _ <- parseHelper TokenRBrace "'}'"
+    _ <- parseHelper TokenSemi "';' at end of method"
+    return (Method pos name formals returnType body)
+
+parseAttrib :: Parser (Feature Posicao)
+parseAttrib = do
+    (pos,name) <- pIDToken 
+    _ <- parseHelper TokenColon "':'"
+    (_, typeName) <- pTypeIdToken 
+
+    expr <- optional (do
+        _ <- parseHelper TokenAssign "'<-'"
+        parseExpr)
+    _ <- parseHelper TokenSemi "':' at end of attribute"
+
+    return (Attribute pos name typeName expr)
+
+parseFeature :: Parser (Feature Posicao)
+parseFeature = try parseMethod <|> parseAttrib
+
+parseNew :: Parser (Expr Posicao)
+parseNew = do
+    pos <- parseHelper TokenNew "keyword 'new'"
+    (_, typeName) <- pTypeIdToken 
+    return (New pos typeName)
 
 operatorTable :: [[Operator Parser (Expr Posicao)]]
 operatorTable = 
@@ -219,6 +263,27 @@ parseExpr :: Parser (Expr Posicao)
 parseExpr = try parseAssign <|> parseNonAssignExpr 
 parseNonAssignExpr = makeExprParser parseTerm operatorTable
 
+parseClass :: Parser (Class Posicao)
+parseClass = do
+    pos <- parseHelper TokenClass "keyword 'class'"
+    (_, className) <- pTypeIdToken 
+    parent <- optional (do
+        _ <- parseHelper TokenInherits "keyword 'inherits'"
+        (_, parentName) <- pTypeIdToken 
+        return parentName)
+    _ <- parseHelper TokenLBrace "'{'"
+
+    features <- many parseFeature
+    _ <- parseHelper TokenRBrace "'}'"
+    _ <- parseHelper TokenSemi "';' at end of class"
+    return (Class pos className parent features)
+
+parseProgram :: Parser (Program Posicao)
+parseProgram = do
+    classes <- some parseClass
+
+    return (Program classes)
+
 parseTerm :: Parser(Expr Posicao)
 
 parseTerm = choice
@@ -230,11 +295,13 @@ parseTerm = choice
     , parseSelfMethod 
     , parseInt
     , parseString
-    , parseID
+    , parseTrue
+    , parseFalse
     , parseParens
     , parseBlock
-    , parseFalse
-    , parseTrue
+    , parseAssign
+    , parseNew
+    , parseID
     ]
     
 

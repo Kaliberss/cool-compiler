@@ -7,9 +7,10 @@ data Class a = Class a String (Maybe String) [Feature a]
     deriving (Show,Eq)
 
 data Feature a 
-    = Method String [(Formal a)] String (Expr a)
-    | Attribute String String (Maybe (Expr a)) 
+    = Method a String [(Formal a)] String (Expr a)
+    | Attribute a String String (Maybe (Expr a)) 
  deriving (Show,Eq)
+
 data Formal a = Formal a String String
     deriving (Show,Eq)
 
