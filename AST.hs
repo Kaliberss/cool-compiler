@@ -16,10 +16,10 @@ data Formal a = Formal a String String
 data LetBinding a = LetBinding a String String (Maybe (Expr a))
     deriving(Show,Eq)
 
-data CaseStructure a = CaseStructure String String (Expr a)
+data CaseStructure a = CaseStructure a String String (Expr a)
     deriving (Show,Eq)
 data Expr a
-    = Assign String (Expr a)
+    = Assign a String (Expr a)
     | MethodCall a (Expr a) String [Expr a]
     | MethodCallAt a (Expr a) String String [Expr a]
 
