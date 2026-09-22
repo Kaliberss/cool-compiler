@@ -6,7 +6,7 @@ Esse projeto está sendo realizado como parte da disciplina de Compiladores na *
 ## Fases do projeto
 
 * __Fase 1: Analisador Léxico__ ✔
-* __Fase 2: Analisador Sintático__ ✘
+* __Fase 2: Analisador Sintático__ ✔
 * __Fase 3: Analisador Semântico__ ✘
 * __Fase 4: Geração de Código__ ✘
 
@@ -29,9 +29,10 @@ Para criar um ambiente de desenvolvimento com as ferramentas necessárias, usand
 ```bash
 nix develop
 ```
-Dentro do devshell, para compilar e executar:
+Dentro do devshell (ou com as dependências instaladas globalmente), para compilar e executar:
 
 ```bash
 cabal build
+cabal run . local/do/arquivo.cl
 cabal run test local/do/arquivo.cl
 ``
