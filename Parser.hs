@@ -124,6 +124,7 @@ parseCaseBranch = do
     (_, typeName) <- pTypeIdToken
     _ <- parseHelper TokenArrow "arrow"
     expr <- parseExpr
+    _ <- parseHelper TokenSemi "';' at end of branch"
     return (CaseStructure pos name typeName expr)
     
 parseBinding :: Parser (LetBinding Posicao)
@@ -145,27 +146,38 @@ parseLet = do
     body <- parseExpr
     return (Let pos bindings body)
 
+parseNot :: Parser (Expr Posicao)
+parseNot = do
+    pos <- parseHelper TokenNot "keyword not"
+    expr <- parseExpr
+    return (Neg pos expr)
+
 parseCase :: Parser (Expr Posicao)
 parseCase = do
     pos <- parseHelper TokenCase "keyword case"
     expr <- parseExpr
     _ <- parseHelper TokenOf "keyword of"
-    branches <- parseCaseBranch `sepBy1` parseHelper TokenSemi "';' after case branch"
+    branches <- some parseCaseBranch
     _ <- parseHelper TokenEsac "keyword esac"
     return (Case pos branches expr)
 
 parseAssign :: Parser (Expr Posicao)
-parseAssign = try $ do
-    (pos,name) <- pIDToken
-    _ <- parseHelper TokenAssign "assignment '<-'"
-    rhs <- parseExpr
-    return (Assign pos name rhs)
+parseAssign =  do
+    (pos,name) <- try $ do
+        pID <- pIDToken
+        _ <- parseHelper TokenAssign "assignment '<-'"
+        return pID
+    expr <- parseExpr
+    return (Assign pos name expr)
+   
+   
+   
 
 parseFormal :: Parser (Formal Posicao)
 parseFormal = do
     (pos,name) <- pIDToken 
     _ <- parseHelper TokenColon "':'"
-    (_, typeName) <- pIDToken 
+    (_, typeName) <- pTypeIdToken 
     return (Formal pos name typeName)
 
 parseMethod :: Parser (Feature Posicao)
@@ -182,6 +194,21 @@ parseMethod = do
     _ <- parseHelper TokenRBrace "'}'"
     _ <- parseHelper TokenSemi "';' at end of method"
     return (Method pos name formals returnType body)
+
+parseDispatch :: Parser (Expr Posicao -> Expr Posicao)
+parseDispatch = do
+    _ <- parseHelper TokenDot "'.'"
+    (pos,name) <- pIDToken
+    _ <- parseHelper TokenLParen "'('"
+    args <- parseExpr `sepBy` parseHelper TokenComma "','"
+    _ <- parseHelper TokenRParen "')'"
+    return (\obj -> MethodCall pos obj name args)
+
+parseChainDispatch :: Parser (Expr Posicao -> Expr Posicao)
+parseChainDispatch = do
+    funcs <- some parseDispatch
+
+    return (\obj -> foldl (\currentExpr func -> func currentExpr) obj funcs)
 
 parseAttrib :: Parser (Feature Posicao)
 parseAttrib = do
@@ -208,11 +235,8 @@ parseNew = do
 operatorTable :: [[Operator Parser (Expr Posicao)]]
 operatorTable = 
     [
-        [ Postfix (do
-            _ <- parseHelper TokenDot "'.'"
-            (pos,name) <- pIDToken
-            args <- parseArgs
-            return (\expr -> MethodCall pos expr name args))
+        [ Postfix parseChainDispatch
+          
         , Postfix (do
             _ <- parseHelper TokenAt "'@'"
             (_, name) <- pTypeIdToken 
@@ -226,10 +250,12 @@ operatorTable =
         [ Prefix (do
             pos <- parseHelper TokenComplement "complement '~'"
             return (\expr -> Complement pos expr))
-        , Prefix (do
+        ]
+    ,   [ Prefix (do
             pos <- parseHelper TokenIsVoid "keyword 'isvoid'"
             return (\expr -> IsVoid pos expr))
         ]
+
     ,
         [ InfixL (do
             pos <- parseHelper TokenMult "operator '*'"
@@ -256,6 +282,10 @@ operatorTable =
         , InfixN (do
             pos <- parseHelper TokenEq "operator '='"
             return (\left right -> Eq pos left right))
+        ]
+    ,   [ Prefix (do
+            pos <- parseHelper TokenNot "keyword 'not'"
+            return (\expr -> Neg pos expr))
         ]
     ]
 
