@@ -3,11 +3,32 @@ module Parser where
 import AST
 import Lexer (Token(..), Posicao(..), TipoToken(..))
 import Data.Void
+import Data.Maybe (catMaybes)
 import Text.Megaparsec hiding (Token)
 import qualified Data.Set as Set
 import Control.Monad.Combinators.Expr
 
 type Parser = Parsec Void [Token]
+
+notSemi :: Token -> Bool
+notSemi (Token TokenSemi _) = False
+notSemi (Token TokenRBrace _) = False
+notSemi _ = True
+
+recovery :: Parser (Maybe (Feature Posicao))
+recovery = withRecovery syncToSemicolon (Just <$> parseFeature)
+    where
+        syncToSemicolon err = do
+            registerParseError err
+
+            _ <- takeWhileP (Just "pulando até ponto e vírgula") notSemi :: Parser[Token]
+
+            isEof <- atEnd
+            if isEof
+                then return Nothing
+                else do
+                    _ <- optional (parseHelper TokenSemi "';'")
+                    return Nothing
 
 matchToken :: (Token -> Maybe a) -> Parser a
 matchToken test = token test Set.empty
@@ -303,10 +324,11 @@ parseClass = do
         return parentName)
     _ <- parseHelper TokenLBrace "'{'"
 
-    features <- many parseFeature
+    features <- manyTill recovery (lookAhead (parseHelper TokenRBrace "'}'"))
+    let validFeatures = catMaybes features
     _ <- parseHelper TokenRBrace "'}'"
     _ <- parseHelper TokenSemi "';' at end of class"
-    return (Class pos className parent features)
+    return (Class pos className parent validFeatures)
 
 parseProgram :: Parser (Program Posicao)
 parseProgram = do

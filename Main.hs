@@ -4,6 +4,8 @@ import Lexer (lexer)
 import Parser (parseProgram)
 import Text.Megaparsec (parse, eof)
 import Text.Show.Pretty (pPrint)
+import Utils(formatAllErrors)
+
 filePipeline :: FilePath -> IO ()
 
 filePipeline filepath = do
@@ -15,7 +17,7 @@ filePipeline filepath = do
 
         Right tokens ->
             case parse (parseProgram <* eof) filepath tokens of
-                Left parseErr -> print parseErr
+                Left parseErr -> putStrLn $ formatAllErrors parseErr
                 Right ast     -> do
                     putStrLn $ "--- AST gerada:"
                     pPrint ast
