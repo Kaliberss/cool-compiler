@@ -34,5 +34,4 @@ Dentro do devshell (ou com as dependências instaladas globalmente), para compil
 ```bash
 cabal build
 cabal run . local/do/arquivo.cl
-cabal run test local/do/arquivo.cl
 ``
