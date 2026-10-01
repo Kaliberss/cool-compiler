@@ -12,7 +12,7 @@ formatAllErrors :: ParseErrorBundle [Token] Void -> String
 formatAllErrors bundle = 
     let allErrors = NE.toList (bundleErrors bundle)
         formattedErrors = map formatError allErrors
-    in "Foram encontrados " ++ show (length allErrors) ++ " erros:\n" ++ intercalate "-----------------------\n" formattedErrors
+    in "Foram encontrados " ++ show (length allErrors) ++ " erros:\n\n" ++ intercalate "\n----------------------------------\n" formattedErrors
 
 formatError :: ParseError [Token] Void -> String
 
@@ -46,5 +46,4 @@ extrairPos :: Token -> String
 extrairPos token = 
     case token of
         Token _ pos -> "Linha " ++ show (line pos) ++ ", coluna " ++ show (col pos)
-        _ -> show token
 

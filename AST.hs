@@ -1,5 +1,16 @@
-module AST where
+module AST
+(Program (..),
+ Class(..),
+ Feature(..),
+ Formal(..),
+ LetBinding(..),
+ CaseStructure(..),
+ Expr(..)
+ )
+where
+
 import Data.Char
+
 newtype Program a = Program [Class a]
     deriving (Show,Eq)
 
