@@ -2,6 +2,8 @@ module Main where
 import System.Environment (getArgs)
 import Lexer (lexer)
 import Parser (parseProgram)
+import Semantic (semanticAnalysis)
+import AST(Program(..))
 import Text.Megaparsec (parse, eof)
 import Text.Show.Pretty (pPrint)
 import Utils(formatAllErrors)
@@ -18,9 +20,15 @@ filePipeline filepath = do
         Right tokens ->
             case parse (parseProgram <* eof) filepath tokens of
                 Left parseErr -> putStrLn $ formatAllErrors parseErr
-                Right ast     -> do
-                    putStrLn $ "--- AST gerada:"
-                    pPrint ast
+                Right (Program ast)     -> do
+                  case semanticAnalysis ast of
+                    Left semanticErrors -> do
+                        putStrLn "Erros semânticos:"
+                        mapM_ (\err -> putStrLn ("-" ++ err)) semanticErrors
+                    
+                    Right _ -> 
+                        putStrLn "Análise semântica completa! Programa válido."
+                   
 
 main :: IO()
 

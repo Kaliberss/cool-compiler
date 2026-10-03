@@ -7,7 +7,7 @@ import Control.Monad(foldM)
 import Control.Monad.State
 import Data.Maybe (fromMaybe)
 import Data.List (nub, intercalate)
-import AST (Class (..), Expr(..), Feature(..), Formal(..),LetBinding(..),CaseStructure(..))
+import AST (Class (..), Expr(..), Feature(..), Formal(..),LetBinding(..),CaseStructure(..), Program(..))
 import Lexer (Posicao(..))
 import Text.Megaparsec hiding (State)
 
@@ -27,6 +27,8 @@ data MethodSig = MethodSig
 type MethodEnv = Map.Map ClassName (Map.Map IDName MethodSig)
 
 type ObjectEnv = Map.Map IDName TypeName
+
+type AttrEnv = Map.Map String (Map.Map String String)
 
 data Env = Env
     { classEnv :: ClassEnv
@@ -56,6 +58,36 @@ baseMethodEnv = Map.fromList [
     ("Int", Map.empty),
     ("Bool", Map.empty)
     ]
+
+buildAttrEnv :: ClassEnv -> [Class Posicao] -> Either [String] AttrEnv
+buildAttrEnv cEnv classes = 
+    let
+        shallowEnv :: Map.Map String [(Posicao, String, String)]
+        shallowEnv = Map.fromList [(name, getAttrs features) | Class _ name _ features <- classes ]
+
+        getAttrs features = [ (pos,attrName, attrType) | Attribute pos attrName attrType _ <- features]
+
+        processClass (accErrors, accEnv) (Class _ className _ _) = 
+
+            let declared = Map.findWithDefault [] className shallowEnv
+
+                ancestors = drop 1 (createInheritancePath cEnv className)
+
+                inherited = concatMap (\anc -> Map.findWithDefault [] anc shallowEnv) ancestors
+                
+                inheritedNames = map (\(_, name, _) -> name) inherited
+
+                shadowErrors = [ "Linha " ++ show (line pos) ++ ": Atributo '" ++ name ++ "' não pode redefinir um atributo herdado" | (pos,name, _) <- declared, name `elem` inheritedNames]
+
+                inheritedMap = Map.fromList [ (name,t) | (_,name,t) <- inherited]
+                declaredMap = Map.fromList [(name,t) | (_,name,t) <- declared]
+                fullClassMap = Map.union declaredMap inheritedMap --left biased
+            in (accErrors ++ shadowErrors, Map.insert className fullClassMap accEnv)
+        (allErrors,finalAttrEnv) = foldl' processClass ([], Map.empty) classes
+    in if null allErrors
+        then Right finalAttrEnv
+        else Left allErrors
+
 
 buildEnvs :: [Class Posicao] -> (ClassEnv, MethodEnv)
 buildEnvs classes = (finalClassEnv, finalMethodEnv)
@@ -113,7 +145,7 @@ validateHierarchy env =
                 then ["Erro semântico: A classe " ++ current ++ " não deve herdar da classe " ++ parent]
                 else walk parent (current:visited)
 
-wrapPass1 :: [Class Posicao] -> Either [String] (ClassEnv, MethodEnv)
+wrapPass1 :: [Class Posicao] -> Either [String] (ClassEnv, MethodEnv, AttrEnv)
 wrapPass1 ast = 
     let (cEnv,mEnv) = buildEnvs ast
         hierarchyErrors = validateHierarchy cEnv
@@ -125,9 +157,11 @@ wrapPass1 ast =
 
         allErrors = hierarchyErrors ++ missingMainError
     
-    in if null allErrors
-        then Right(cEnv,mEnv)
-        else Left(allErrors)
+    in if not (null allErrors) 
+        then Left allErrors
+        else do
+            aEnv <- buildAttrEnv cEnv ast
+            Right (cEnv,mEnv,aEnv)
 
 reportErrors :: String -> TypeCheck()
 reportErrors msg = modify (\error -> error ++ [msg])
@@ -193,7 +227,7 @@ checkMath pos operator e1 e2 = do
     t2 <- typecheckExpr e2
     if t1 /= "Int" || t2 /= "Int"
         then do 
-            reportErrors $ "Linha " ++ show pos ++ ": ambos operandos do " ++ operator ++ " devem ser do tipo Int, mas eram do tipo " ++ t1 ++ " e " ++ t2
+            reportErrors $ "Linha " ++ show (line pos) ++ ": ambos operandos do " ++ operator ++ " devem ser do tipo Int, mas eram do tipo " ++ t1 ++ " e " ++ t2
             return "Int"
 
         else return "Int"
@@ -204,7 +238,7 @@ checkComparison pos operator e1 e2 = do
     t2 <- typecheckExpr e2
     if t1 /= "Int" || t2 /= "Int"
         then do 
-            reportErrors $ "Linha " ++ show pos ++ ": ambos operandos do " ++ operator ++ " devem ser do tipo Int, mas eram do tipo " ++ t1 ++ " e " ++ t2
+            reportErrors $ "Linha " ++ show (line pos) ++ ": ambos operandos do " ++ operator ++ " devem ser do tipo Int, mas eram do tipo " ++ t1 ++ " e " ++ t2
             return "Bool"
 
         else return "Bool"
@@ -222,7 +256,7 @@ typecheckExpr (ConstId pos varName) = do
             case Map.lookup varName env of
                 Just t -> return t
                 Nothing -> do
-                    reportErrors $ "Linha " ++ show pos ++ ": identificador desconhecido" ++ varName
+                    reportErrors $ "Linha " ++ show (line pos) ++ ": identificador desconhecido" ++ varName
                     return "Object"
 
 typecheckExpr (Assign pos varName expr) = do
@@ -230,13 +264,13 @@ typecheckExpr (Assign pos varName expr) = do
 
     let declaredType = Map.findWithDefault "Object" varName (objectEnv env)
     if Map.notMember varName (objectEnv env)
-        then reportErrors $ "Linha " ++ show pos ++ ": variável desconhecida" ++ varName
+        then reportErrors $ "Linha " ++ show (line pos) ++ ": variável desconhecida" ++ varName
         else return ()
     exprType <- typecheckExpr expr
     isValid <- assertSubtype exprType declaredType
 
     if not isValid
-        then reportErrors $ "Linha " ++ show pos ++ ": Erro de tipo - Não é possível atribuir " ++ exprType ++ " para uma variável do tipo " ++ declaredType
+        then reportErrors $ "Linha " ++ show (line pos) ++ ": Erro de tipo - Não é possível atribuir " ++ exprType ++ " para uma variável do tipo " ++ declaredType
         else return()
     return exprType
 
@@ -254,7 +288,7 @@ typecheckExpr (MethodCall pos caller methodName args) = do
         Just (MethodSig formalTypes declaredReturnType) -> do
             if length args /= length formalTypes
                 then do
-                    reportErrors $ "Linha " ++ show pos ++ ": O método " ++ methodName ++ " esperava " ++ show (length formalTypes) ++ " argumentos, mas recebeu " ++ show (length args) 
+                    reportErrors $ "Linha " ++ show (line pos) ++ ": O método " ++ methodName ++ " esperava " ++ show (length formalTypes) ++ " argumentos, mas recebeu " ++ show (length args) 
                     return "Object"
                 else do
                     argTypes <- mapM typecheckExpr args
@@ -262,7 +296,7 @@ typecheckExpr (MethodCall pos caller methodName args) = do
                     zipWithM_(\actual formal -> do
                         isValid <- assertSubtype actual formal
                         if not isValid
-                            then reportErrors $ "Linha " ++ show pos ++ ": o tipo do argumento é " ++ show actual ++ " mas o tipo esperado era " ++ formal
+                            then reportErrors $ "Linha " ++ show (line pos) ++ ": o tipo do argumento é " ++ show actual ++ " mas o tipo esperado era " ++ formal
                             else return()
                             ) argTypes formalTypes
 
@@ -277,28 +311,28 @@ typecheckExpr (MethodCallAt pos caller staticType methodName args) = do
     isValidCast <- assertSubtype callerType staticType
     if not isValidCast
         then do
-            reportErrors $ "Linha " ++ show pos ++ ": Tipo à esquerda do @ (" ++ callerType ++ ") deve conformar ao tipo à direita do @ (" ++ staticType ++ ")"
+            reportErrors $ "Linha " ++ show (line pos) ++ ": Tipo à esquerda do @ (" ++ callerType ++ ") deve conformar ao tipo à direita do @ (" ++ staticType ++ ")"
             return "Object"
         else do
             env <- ask
             
             case findMethod (classEnv env) (methodEnv env) staticType methodName of
                 Nothing -> do
-                    reportErrors $ "Linha " ++ show pos ++ ": O método " ++ methodName ++ " não foi definido na classe " ++ staticType
+                    reportErrors $ "Linha " ++ show (line pos) ++ ": O método " ++ methodName ++ " não foi definido na classe " ++ staticType
                     return "Object"
 
                 Just (MethodSig formalTypes declaredReturnType) -> do
                     
                     if length formalTypes /= length args
                         then do
-                            reportErrors $ "Linha " ++ show pos ++ ": O método " ++ methodName ++ " esperava " ++ show (length formalTypes) ++ " mas recebeu " ++ show (length args)
+                            reportErrors $ "Linha " ++ show (line pos) ++ ": O método " ++ methodName ++ " esperava " ++ show (length formalTypes) ++ " mas recebeu " ++ show (length args)
                             return "Object"
                         else do
                             argTypes <- mapM typecheckExpr args
                             zipWithM_ (\actual formal -> do
                                 isValidArg <- assertSubtype actual formal
                                 if not isValidArg
-                                    then reportErrors $ "Linha " ++ show pos ++ ": O tipo do argumento (" ++ actual ++ ")" ++ " não conforma ao esperado (" ++ formal ++ ")"
+                                    then reportErrors $ "Linha " ++ show (line pos) ++ ": O tipo do argumento (" ++ actual ++ ")" ++ " não conforma ao esperado (" ++ formal ++ ")"
                                     else return ()
                                         ) argTypes formalTypes
 
@@ -316,7 +350,7 @@ typecheckExpr (MethodCallAt pos caller staticType methodName args) = do
 typecheckExpr (If pos cond branch_then branch_else) = do
     condType <- typecheckExpr cond
     if condType /= "Bool"
-        then reportErrors $ "Linha " ++ show pos ++ ": A condição do 'if' deve ser booleana, mas recebeu " ++ condType
+        then reportErrors $ "Linha " ++ show (line pos) ++ ": A condição do 'if' deve ser booleana, mas recebeu " ++ condType
         else return ()
 
     thenType <- typecheckExpr branch_then
@@ -350,7 +384,7 @@ typecheckExpr (Case pos testExpr branches) = do
     _ <- typecheckExpr testExpr
     let declaredTypes = map(\(CaseStructure _ _ t _) -> t) branches
     if length (nub declaredTypes) /= length declaredTypes
-        then reportErrors $ "Linha " ++ show pos ++ ": Tipos duplicados em branches do case"
+        then reportErrors $ "Linha " ++ show (line pos) ++ ": Tipos duplicados em branches do case"
         else return ()
 
     let typecheckBranch (CaseStructure _ varName varType body) = 
@@ -365,7 +399,7 @@ typecheckExpr (Case pos testExpr branches) = do
 typecheckExpr (While pos cond body) = do
     condType <- typecheckExpr cond
     if condType /= "Bool"
-        then reportErrors $ "Linha " ++ show pos ++ ": a condição do while deveria ser um Bool, mas foi " ++ condType
+        then reportErrors $ "Linha " ++ show (line pos) ++ ": a condição do while deveria ser um Bool, mas foi " ++ condType
         else return ()
 
     _ <- typecheckExpr body
@@ -389,7 +423,7 @@ typecheckExpr (Eq pos e1 e2) = do
 
     if (isBasicType t1 || isBasicType t2) && (t1 /= t2)
         then do
-            reportErrors $ "Linha " ++ show pos ++ ": Não é possível comparar " ++ t1 ++ " com " ++ t2
+            reportErrors $ "Linha " ++ show (line pos) ++ ": Não é possível comparar " ++ t1 ++ " com " ++ t2
             return "Bool"
 
         else return "Bool"
@@ -405,14 +439,72 @@ typecheckExpr (Complement pos expr) = do
     t <- typecheckExpr expr
     if t /= "Int"
         then do
-            reportErrors $ "Linha " ++ show pos ++ ": O operando de ~ deve ser um Int, mas foi um " ++ t
+            reportErrors $ "Linha " ++ show (line pos) ++ ": O operando de ~ deve ser um Int, mas foi um " ++ t
             return "Int"
 
         else return "Int"
     
 
+typecheckFeature :: ClassEnv -> MethodEnv -> AttrEnv -> String -> Feature Posicao -> TypeCheck ()
+
+typecheckFeature cEnv mEnv aEnv className (Method pos methodName formals returnType body) = do
+    let formalsList = map (\(Formal _ name t) -> (name, t)) formals
+
+    local (\env -> env {objectEnv = Map.union (Map.fromList formalsList) (objectEnv env) }) $ do
+        bodyType <- typecheckExpr body
+
+        let expectedType = if returnType == "SELF_TYPE" then className else returnType
+        let actualType = if bodyType == "SELF_TYPE" then className else bodyType
+        isValidReturn <- assertSubtype actualType expectedType
+        if not isValidReturn
+            then reportErrors $ "Linha " ++ show (line pos) ++ ": Tipo de retorno do método " ++ methodName ++ "não conforma ao declarado (" ++ returnType ++ ")"
+            else return ()
+
+typecheckFeature cEnv mEnv aEnv className (Attribute pos attrName attrType initExpr) = do
+    case initExpr of
+        Just expr -> do
+            initType <- typecheckExpr expr
+            isValid <- assertSubtype initType attrType
+            if not isValid
+                then do
+                    reportErrors $ "Linha " ++ show (line pos) ++ ": Tipo da inicialização do atributo " ++ attrName ++ "(" ++ initType ++ ")" ++ "não conforma a " ++ attrType
+                else return ()
+
+        Nothing -> return ()
     
 
+
+wrapPass2 :: [Class Posicao] -> ClassEnv -> MethodEnv -> AttrEnv -> Either [String] ()
+wrapPass2 ast cEnv mEnv aEnv =
+    let initialEnv = Env {
+        classEnv = cEnv,
+        methodEnv = mEnv,
+        objectEnv = Map.singleton "self" "SELF_TYPE",
+        currentClass = "Object"
+    }
+        typecheckClass (Class _ className _ features) = do
+            local (\env -> env {currentClass = className}) $ do
+      
+                let classAttrs = Map.findWithDefault Map.empty className aEnv
+                local (\env -> env {objectEnv = Map.union classAttrs (objectEnv env)}) $ do
+                    mapM_ (typecheckFeature cEnv mEnv aEnv className) features
+                   
+        typecheckAllClasses = mapM_ typecheckClass ast
+
+        (_, finalErrors) = runState (runReaderT typecheckAllClasses initialEnv) []
+
+    in if null finalErrors 
+        then Right ()
+        else Left finalErrors
+        
+semanticAnalysis :: [Class Posicao] -> Either [String] ()
+
+semanticAnalysis ast = do 
+    (cEnv,mEnv,aEnv) <- wrapPass1 ast
+    wrapPass2 ast cEnv mEnv aEnv
+
+
+                
 
                 
                 
