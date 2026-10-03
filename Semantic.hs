@@ -2,6 +2,7 @@ module Semantic where
 
 import qualified Data.Map as Map
 import Control.Monad.Reader
+import Control.Monad(zipWithM_)
 import Control.Monad.State
 import Data.Maybe (fromMaybe)
 import Data.List (nub, intercalate)
@@ -126,3 +127,153 @@ wrapPass1 ast =
     in if null allErrors
         then Right(cEnv,mEnv)
         else Left(allErrors)
+
+reportErrors :: String -> TypeCheck()
+reportErrors msg = modify (\error -> error ++ [msg])
+
+tempLocalVar :: String -> String -> TypeCheck a -> TypeCheck a
+tempLocalVar varName varType = 
+    local(\env ->
+         let newEnv = Map.insert varName varType (objectEnv env)
+         in env { objectEnv = newEnv} )
+
+
+isSubtype :: ClassEnv -> String -> String -> String -> Bool
+isSubtype classEnv currentClass t1 t2 
+    | t1 == t2 = True
+    | t2 == "Object" = True
+    | t1 == "SELF_TYPE" = isSubtype classEnv currentClass currentClass t2
+    | t2 == "SELF_TYPE" = False
+    
+    | otherwise = 
+        case Map.lookup t1 classEnv of
+            Just parent ->
+                if parent == ""
+                    then False
+                    else isSubtype classEnv currentClass parent t2
+            Nothing -> False
+
+assertSubtype :: String -> String -> TypeCheck Bool
+assertSubtype t1 t2 = do
+    env <- ask
+    return $ isSubtype (classEnv env) (currentClass env) t1 t2
+
+
+createInheritancePath :: ClassEnv -> String -> [String]
+createInheritancePath classEnv className = 
+    className : case Map.lookup className classEnv of
+        Just "" -> ["Object"] --potencialmente redundante
+        Just "Object" -> ["Object"]
+        Just parent -> createInheritancePath classEnv parent
+        Nothing -> ["Object"]
+
+
+findLowestAncestor :: ClassEnv -> String -> String -> String -> String
+findLowestAncestor classEnv currentClass t1 t2 
+    | t1 == t2 = t1 
+    | otherwise = 
+        let actualT1 = if t1 == "SELF_TYPE" then currentClass else t1
+            actualT2 = if t2 == "SELF_TYPE" then currentClass else t2
+
+            t1Path = createInheritancePath classEnv actualT1
+            t2Path = createInheritancePath classEnv actualT2
+
+            commonAncestors = [a | a <- t1Path, a `elem` t2Path]
+        in head commonAncestors
+
+calculateLowestAncestor :: String -> String -> TypeCheck String
+calculateLowestAncestor t1 t2 = do
+    env <- ask
+    return $ findLowestAncestor (classEnv env) (currentClass env) t1 t2
+
+
+typecheckExpr :: Expr Posicao -> TypeCheck String
+typecheckExpr (ConstInt _ _ ) = return "Int"
+typecheckExpr (ConstStr _ _)  = return "String"
+typecheckExpr (BoolConst _ _) = return "Bool"
+
+typecheckExpr (ConstId pos varName) = do
+    if varName == "self"
+        then return "SELF_TYPE"
+        else do
+            env <- asks objectEnv
+            case Map.lookup varName env of
+                Just t -> return t
+                Nothing -> do
+                    reportErrors $ "Linha " ++ show pos ++ ": identificador desconhecido" ++ varName
+                    return "Object"
+
+typecheckExpr (Assign pos varName expr) = do
+    env <- ask
+
+    let declaredType = Map.findWithDefault "Object" varName (objectEnv env)
+    if Map.notMember varName (objectEnv env)
+        then reportErrors $ "Linha " ++ show pos ++ ": variável desconhecida" ++ varName
+        else return ()
+    exprType <- typecheckExpr expr
+    isValid <- assertSubtype exprType declaredType
+
+    if not isValid
+        then reportErrors $ "Linha " ++ show pos ++ ": Erro de tipo - Não é possível atribuir " ++ exprType ++ " para uma variável do tipo " ++ declaredType
+        else return()
+    return exprType
+
+typecheckExpr (MethodCall pos caller methodName args) = do
+    callerType <- typecheckExpr caller
+    env <- ask
+
+    let lookupClass = if callerType == "SELF_TYPE" then currentClass env else callerType
+    
+    case findMethod (classEnv env) (methodEnv env) lookupClass methodName of
+        Nothing -> do
+            reportErrors $ "Linha " ++ ": chamada a um método indefinido " ++ methodName ++ " no tipo " ++ lookupClass
+            return "Object"
+
+        Just (MethodSig formalTypes declaredReturnType) -> do
+            if length args /= length formalTypes
+                then do
+                    reportErrors $ "Linha " ++ show pos ++ ": O método " ++ methodName ++ " esperava " ++ show (length formalTypes) ++ " argumentos, mas recebeu " ++ show (length args) 
+                    return "Object"
+                else do
+                    argTypes <- mapM typecheckExpr args
+
+                    zipWithM_(\actual formal -> do
+                        isValid <- assertSubtype actual formal
+                        if not isValid
+                            then reportErrors $ "Linha " ++ show pos ++ ": o tipo do argumento é " ++ show actual ++ " mas o tipo esperado era " ++ formal
+                            else return()
+                            ) argTypes formalTypes
+
+                    if declaredReturnType == "SELF_TYPE"
+                    then return callerType
+                    else return declaredReturnType 
+
+                
+                
+typecheckExpr (If pos cond branch_then branch_else) = do
+    condType <- typecheckExpr cond
+    if condType /= "Bool"
+        then reportErrors $ "Linha " ++ show pos ++ ": A condição do 'if' deve ser booleana, mas recebeu " ++ condType
+        else return ()
+
+    thenType <- typecheckExpr branch_then
+    elseType <- typecheckExpr branch_else
+
+    calculateLowestAncestor thenType elseType
+                
+                
+                
+                
+                
+                
+                
+                
+                
+                 
+                   
+                   
+                        
+                        
+                        
+
+    
