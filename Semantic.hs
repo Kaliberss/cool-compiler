@@ -3,10 +3,11 @@ module Semantic where
 import qualified Data.Map as Map
 import Control.Monad.Reader
 import Control.Monad(zipWithM_)
+import Control.Monad(foldM)
 import Control.Monad.State
 import Data.Maybe (fromMaybe)
 import Data.List (nub, intercalate)
-import AST (Class (..), Expr(..), Feature(..), Formal(..))
+import AST (Class (..), Expr(..), Feature(..), Formal(..),LetBinding(..),CaseStructure(..))
 import Lexer (Posicao(..))
 import Text.Megaparsec hiding (State)
 
@@ -186,6 +187,27 @@ calculateLowestAncestor t1 t2 = do
     env <- ask
     return $ findLowestAncestor (classEnv env) (currentClass env) t1 t2
 
+checkMath :: Posicao -> String -> Expr Posicao -> Expr Posicao -> TypeCheck String
+checkMath pos operator e1 e2 = do
+    t1 <- typecheckExpr e1
+    t2 <- typecheckExpr e2
+    if t1 /= "Int" || t2 /= "Int"
+        then do 
+            reportErrors $ "Linha " ++ show pos ++ ": ambos operandos do " ++ operator ++ " devem ser do tipo Int, mas eram do tipo " ++ t1 ++ " e " ++ t2
+            return "Int"
+
+        else return "Int"
+
+checkComparison :: Posicao -> String -> Expr Posicao -> Expr Posicao -> TypeCheck String
+checkComparison pos operator e1 e2 = do
+    t1 <- typecheckExpr e1
+    t2 <- typecheckExpr e2
+    if t1 /= "Int" || t2 /= "Int"
+        then do 
+            reportErrors $ "Linha " ++ show pos ++ ": ambos operandos do " ++ operator ++ " devem ser do tipo Int, mas eram do tipo " ++ t1 ++ " e " ++ t2
+            return "Bool"
+
+        else return "Bool"
 
 typecheckExpr :: Expr Posicao -> TypeCheck String
 typecheckExpr (ConstInt _ _ ) = return "Int"
@@ -249,7 +271,48 @@ typecheckExpr (MethodCall pos caller methodName args) = do
                     else return declaredReturnType 
 
                 
-                
+typecheckExpr (MethodCallAt pos caller staticType methodName args) = do
+    callerType <- typecheckExpr caller
+
+    isValidCast <- assertSubtype callerType staticType
+    if not isValidCast
+        then do
+            reportErrors $ "Linha " ++ show pos ++ ": Tipo à esquerda do @ (" ++ callerType ++ ") deve conformar ao tipo à direita do @ (" ++ staticType ++ ")"
+            return "Object"
+        else do
+            env <- ask
+            
+            case findMethod (classEnv env) (methodEnv env) staticType methodName of
+                Nothing -> do
+                    reportErrors $ "Linha " ++ show pos ++ ": O método " ++ methodName ++ " não foi definido na classe " ++ staticType
+                    return "Object"
+
+                Just (MethodSig formalTypes declaredReturnType) -> do
+                    
+                    if length formalTypes /= length args
+                        then do
+                            reportErrors $ "Linha " ++ show pos ++ ": O método " ++ methodName ++ " esperava " ++ show (length formalTypes) ++ " mas recebeu " ++ show (length args)
+                            return "Object"
+                        else do
+                            argTypes <- mapM typecheckExpr args
+                            zipWithM_ (\actual formal -> do
+                                isValidArg <- assertSubtype actual formal
+                                if not isValidArg
+                                    then reportErrors $ "Linha " ++ show pos ++ ": O tipo do argumento (" ++ actual ++ ")" ++ " não conforma ao esperado (" ++ formal ++ ")"
+                                    else return ()
+                                        ) argTypes formalTypes
+
+                            if declaredReturnType == "SELF_TYPE"
+                                then return callerType
+                                else return declaredReturnType
+
+
+                    
+
+
+
+
+    
 typecheckExpr (If pos cond branch_then branch_else) = do
     condType <- typecheckExpr cond
     if condType /= "Bool"
@@ -261,7 +324,96 @@ typecheckExpr (If pos cond branch_then branch_else) = do
 
     calculateLowestAncestor thenType elseType
                 
+
+typecheckExpr (Let _ bindings body) = do
+    let processBindings [] = typecheckExpr body
+        processBindings ((LetBinding bindPos varName varType inExpr) : rest) = do
+            case inExpr of
+                Just expr -> do
+                    exprType <- typecheckExpr expr
+                    isValid <- assertSubtype exprType varType
+                    if not isValid
+                        then reportErrors $ "Linha " ++ show bindPos ++ ": o tipo da expressão " ++ exprType ++ "não é do tipo esperado, " ++ varType
+                        else return ()
+
+                Nothing -> return ()
                 
+            tempLocalVar varName varType (processBindings rest)
+
+    processBindings bindings
+
+typecheckExpr (Block pos exprs) = do
+    types <- mapM typecheckExpr exprs
+    return (last types)
+
+typecheckExpr (Case pos testExpr branches) = do
+    _ <- typecheckExpr testExpr
+    let declaredTypes = map(\(CaseStructure _ _ t _) -> t) branches
+    if length (nub declaredTypes) /= length declaredTypes
+        then reportErrors $ "Linha " ++ show pos ++ ": Tipos duplicados em branches do case"
+        else return ()
+
+    let typecheckBranch (CaseStructure _ varName varType body) = 
+            tempLocalVar varName varType (typecheckExpr body)
+
+    branchTypes <- mapM typecheckBranch branches
+
+    let (firstType : restTypes) = branchTypes
+    foldM calculateLowestAncestor firstType restTypes
+
+
+typecheckExpr (While pos cond body) = do
+    condType <- typecheckExpr cond
+    if condType /= "Bool"
+        then reportErrors $ "Linha " ++ show pos ++ ": a condição do while deveria ser um Bool, mas foi " ++ condType
+        else return ()
+
+    _ <- typecheckExpr body
+
+    return "Object"
+
+  
+typecheckExpr (Add pos e1 e2) = checkMath pos "+" e1 e2
+typecheckExpr (Sub pos e1 e2) = checkMath pos "-" e1 e2
+typecheckExpr (Mult pos e1 e2) = checkMath pos "*" e1 e2
+typecheckExpr (Div pos e1 e2) = checkMath pos "/" e1 e2
+
+typecheckExpr (Lt pos e1 e2) = checkComparison pos "<" e1 e2
+typecheckExpr (Le pos e1 e2) = checkComparison pos "<=" e1 e2
+
+typecheckExpr (Eq pos e1 e2) = do
+    t1 <- typecheckExpr e1
+    t2 <- typecheckExpr e2
+
+    let isBasicType t = t `elem` ["Int", "String", "Bool"]
+
+    if (isBasicType t1 || isBasicType t2) && (t1 /= t2)
+        then do
+            reportErrors $ "Linha " ++ show pos ++ ": Não é possível comparar " ++ t1 ++ " com " ++ t2
+            return "Bool"
+
+        else return "Bool"
+
+typecheckExpr (IsVoid pos expr) = do
+    _ <- typecheckExpr expr
+    return "Bool"
+
+typecheckExpr (New pos typeName) = do
+    return typeName
+
+typecheckExpr (Complement pos expr) = do
+    t <- typecheckExpr expr
+    if t /= "Int"
+        then do
+            reportErrors $ "Linha " ++ show pos ++ ": O operando de ~ deve ser um Int, mas foi um " ++ t
+            return "Int"
+
+        else return "Int"
+    
+
+    
+
+
                 
                 
                 

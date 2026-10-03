@@ -40,7 +40,7 @@ data Expr a
     | Block a [Expr a]
 
     | Let a [LetBinding a] (Expr a)
-    | Case a [CaseStructure a] (Expr a)
+    | Case a (Expr a) [CaseStructure a] 
 
     | New a String
     | IsVoid a (Expr a)

@@ -180,7 +180,7 @@ parseCase = do
     _ <- parseHelper TokenOf "keyword of"
     branches <- some parseCaseBranch
     _ <- parseHelper TokenEsac "keyword esac"
-    return (Case pos branches expr)
+    return (Case pos expr branches )
 
 parseAssign :: Parser (Expr Posicao)
 parseAssign =  do
