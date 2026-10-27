@@ -77,7 +77,7 @@ buildAttrEnv cEnv classes =
                 
                 inheritedNames = map (\(_, name, _) -> name) inherited
 
-                shadowErrors = [ "Linha " ++ show (line pos) ++ ": Atributo '" ++ name ++ "' não pode redefinir um atributo herdado" | (pos,name, _) <- declared, name `elem` inheritedNames]
+                shadowErrors = [ "Linha " ++ show (line pos) ++ ": Atributo '" ++ name ++ "' não pode redefinir um atributo herdado " | (pos,name, _) <- declared, name `elem` inheritedNames]
 
                 inheritedMap = Map.fromList [ (name,t) | (_,name,t) <- inherited]
                 declaredMap = Map.fromList [(name,t) | (_,name,t) <- declared]
@@ -151,9 +151,17 @@ wrapPass1 ast =
         hierarchyErrors = validateHierarchy cEnv
 
         missingMainError =
-            if Map.member "Main" cEnv
-                then []
-                else ["Erro semântico: O programa precisa de uma classe Main"]
+            case Map.lookup "Main" mEnv of
+                Nothing -> ["Erro: Classe Main não encontrada."]
+                
+                Just mainMethods ->
+                    case Map.lookup "main" mainMethods of
+                        Nothing -> ["Erro: Método main não encontrado na classe Main."]
+                        Just (MethodSig params _) ->
+                            if null params
+                                then []
+                                else ["Erro: O método main não deve receber parâmetros."]
+        
 
         allErrors = hierarchyErrors ++ missingMainError
     
@@ -256,7 +264,7 @@ typecheckExpr (ConstId pos varName) = do
             case Map.lookup varName env of
                 Just t -> return t
                 Nothing -> do
-                    reportErrors $ "Linha " ++ show (line pos) ++ ": identificador desconhecido" ++ varName
+                    reportErrors $ "Linha " ++ show (line pos) ++ ": identificador desconhecido " ++ varName
                     return "Object"
 
 typecheckExpr (Assign pos varName expr) = do
@@ -264,7 +272,7 @@ typecheckExpr (Assign pos varName expr) = do
 
     let declaredType = Map.findWithDefault "Object" varName (objectEnv env)
     if Map.notMember varName (objectEnv env)
-        then reportErrors $ "Linha " ++ show (line pos) ++ ": variável desconhecida" ++ varName
+        then reportErrors $ "Linha " ++ show (line pos) ++ ": variável desconhecida " ++ varName
         else return ()
     exprType <- typecheckExpr expr
     isValid <- assertSubtype exprType declaredType
@@ -457,7 +465,7 @@ typecheckFeature cEnv mEnv aEnv className (Method pos methodName formals returnT
         let actualType = if bodyType == "SELF_TYPE" then className else bodyType
         isValidReturn <- assertSubtype actualType expectedType
         if not isValidReturn
-            then reportErrors $ "Linha " ++ show (line pos) ++ ": Tipo de retorno do método " ++ methodName ++ "não conforma ao declarado (" ++ returnType ++ ")"
+            then reportErrors $ "Linha " ++ show (line pos) ++ ": Tipo de retorno do método " ++ methodName ++ " não conforma ao declarado (" ++ returnType ++ ")"
             else return ()
 
 typecheckFeature cEnv mEnv aEnv className (Attribute pos attrName attrType initExpr) = do
@@ -467,7 +475,7 @@ typecheckFeature cEnv mEnv aEnv className (Attribute pos attrName attrType initE
             isValid <- assertSubtype initType attrType
             if not isValid
                 then do
-                    reportErrors $ "Linha " ++ show (line pos) ++ ": Tipo da inicialização do atributo " ++ attrName ++ "(" ++ initType ++ ")" ++ "não conforma a " ++ attrType
+                    reportErrors $ "Linha " ++ show (line pos) ++ ": Tipo da inicialização do atributo " ++ attrName ++ " (" ++ initType ++ ")" ++ " não conforma a " ++ attrType
                 else return ()
 
         Nothing -> return ()

@@ -12,7 +12,6 @@ type Parser = Parsec Void [Token]
 
 notSemi :: Token -> Bool
 notSemi (Token TokenSemi _) = False
-notSemi (Token TokenRBrace _) = False
 notSemi _ = True
 
 recovery :: Parser (Maybe (Feature Posicao))
@@ -54,7 +53,7 @@ pIDToken = matchToken test <?> "identifier"
         test _                         = Nothing
 
 pTypeIdToken :: Parser (Posicao, String)
-pTypeIdToken = matchToken test <?> "type identifier"
+pTypeIdToken = matchToken test <?> "identificador de tipo"
     where
         test (Token (TokenTypeID str) pos) = Just (pos, str)
         test _                             = Nothing
