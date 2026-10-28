@@ -1,4 +1,9 @@
-module Semantic where
+module Semantic
+(ClassEnv(..),
+ MethodEnv(..),
+ AttrEnv(..),
+ ObjectEnv(..))
+where
 
 import qualified Data.Map as Map
 import Control.Monad.Reader

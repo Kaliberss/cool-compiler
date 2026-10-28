@@ -7,7 +7,7 @@ Esse projeto está sendo realizado como parte da disciplina de Compiladores na *
 
 * __Fase 1: Analisador Léxico__ ✔
 * __Fase 2: Analisador Sintático__ ✔
-* __Fase 3: Analisador Semântico__ ✘
+* __Fase 3: Analisador Semântico__ ✔
 * __Fase 4: Geração de Código__ ✘
 
 ## Dependências
