@@ -59,7 +59,7 @@ baseMethodEnv = Map.fromList [
     ("Bool", Map.empty)
     ]
 
-buildAttrEnv :: ClassEnv -> [Class Posicao] -> Either [String] AttrEnv
+buildAttrEnv :: ClassEnv -> [Class Posicao] -> ([String], AttrEnv)
 buildAttrEnv cEnv classes = 
     let
         shallowEnv :: Map.Map String [(Posicao, String, String)]
@@ -84,9 +84,7 @@ buildAttrEnv cEnv classes =
                 fullClassMap = Map.union declaredMap inheritedMap --left biased
             in (accErrors ++ shadowErrors, Map.insert className fullClassMap accEnv)
         (allErrors,finalAttrEnv) = foldl' processClass ([], Map.empty) classes
-    in if null allErrors
-        then Right finalAttrEnv
-        else Left allErrors
+    in (allErrors,finalAttrEnv)
 
 
 buildEnvs :: [Class Posicao] -> (ClassEnv, MethodEnv)
@@ -145,31 +143,17 @@ validateHierarchy env =
                 then ["Erro semântico: A classe " ++ current ++ " não deve herdar da classe " ++ parent]
                 else walk parent (current:visited)
 
-wrapPass1 :: [Class Posicao] -> Either [String] (ClassEnv, MethodEnv, AttrEnv)
+wrapPass1 :: [Class Posicao] ->  ([String],ClassEnv, MethodEnv, AttrEnv)
 wrapPass1 ast = 
     let (cEnv,mEnv) = buildEnvs ast
         hierarchyErrors = validateHierarchy cEnv
 
-        missingMainError =
-            case Map.lookup "Main" mEnv of
-                Nothing -> ["Erro: Classe Main não encontrada."]
-                
-                Just mainMethods ->
-                    case Map.lookup "main" mainMethods of
-                        Nothing -> ["Erro: Método main não encontrado na classe Main."]
-                        Just (MethodSig params _) ->
-                            if null params
-                                then []
-                                else ["Erro: O método main não deve receber parâmetros."]
-        
+        missingMainError = validateMainMethod mEnv
 
-        allErrors = hierarchyErrors ++ missingMainError
-    
-    in if not (null allErrors) 
-        then Left allErrors
-        else do
-            aEnv <- buildAttrEnv cEnv ast
-            Right (cEnv,mEnv,aEnv)
+        (attrErrors,aEnv) = buildAttrEnv cEnv ast
+
+        allErrors = hierarchyErrors ++ missingMainError ++ attrErrors
+    in (allErrors, cEnv, mEnv, aEnv)
 
 reportErrors :: String -> TypeCheck()
 reportErrors msg = modify (\error -> error ++ [msg])
@@ -228,6 +212,18 @@ calculateLowestAncestor :: String -> String -> TypeCheck String
 calculateLowestAncestor t1 t2 = do
     env <- ask
     return $ findLowestAncestor (classEnv env) (currentClass env) t1 t2
+
+validateMainMethod :: MethodEnv -> [String]
+validateMainMethod mEnv = 
+    case Map.lookup "Main" mEnv of
+        Nothing -> ["Erro: classe Main não foi encontrada"]
+        Just mainMethods ->
+            case Map.lookup "main" mainMethods of
+                Nothing -> ["Erro: método main não foi definido na classe Main"]
+                Just (MethodSig formals _) ->
+                    if null formals
+                        then []
+                        else ["Erro: o método main não deve ter parâmetros"]
 
 checkMath :: Posicao -> String -> Expr Posicao -> Expr Posicao -> TypeCheck String
 checkMath pos operator e1 e2 = do
@@ -482,8 +478,8 @@ typecheckFeature cEnv mEnv aEnv className (Attribute pos attrName attrType initE
     
 
 
-wrapPass2 :: [Class Posicao] -> ClassEnv -> MethodEnv -> AttrEnv -> Either [String] ()
-wrapPass2 ast cEnv mEnv aEnv =
+wrapPass2 :: [Class Posicao] -> ClassEnv -> MethodEnv -> AttrEnv -> [String] -> Either [String] ()
+wrapPass2 ast cEnv mEnv aEnv pass1Errors =
     let initialEnv = Env {
         classEnv = cEnv,
         methodEnv = mEnv,
@@ -499,7 +495,7 @@ wrapPass2 ast cEnv mEnv aEnv =
                    
         typecheckAllClasses = mapM_ typecheckClass ast
 
-        (_, finalErrors) = runState (runReaderT typecheckAllClasses initialEnv) []
+        (_, finalErrors) = runState (runReaderT typecheckAllClasses initialEnv) pass1Errors
 
     in if null finalErrors 
         then Right ()
@@ -507,9 +503,9 @@ wrapPass2 ast cEnv mEnv aEnv =
         
 semanticAnalysis :: [Class Posicao] -> Either [String] ()
 
-semanticAnalysis ast = do 
-    (cEnv,mEnv,aEnv) <- wrapPass1 ast
-    wrapPass2 ast cEnv mEnv aEnv
+semanticAnalysis ast =  
+    let (pass1Errors,cEnv,mEnv,aEnv) =  wrapPass1 ast
+    in wrapPass2 ast cEnv mEnv aEnv pass1Errors
 
 
                 
